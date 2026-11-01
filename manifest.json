@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "name": "gitkit",
+  "version": "0.1.0",
+  "description": "Read-only local Git repository inspection: HEAD, status and staged/unstaged diffs using embedded libgit2",
+  "libraries": [{"libName": "buoy_gitkit", "system": false}]
+}

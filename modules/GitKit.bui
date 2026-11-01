@@ -1,0 +1,198 @@
+' Read-only repository inspection. Native handles never escape this module.
+Private Declare Function N_Open Lib "buoy_gitkit" Alias "bgtk_open" (directory As String, discover As Integer) As Ptr
+Private Declare Sub N_Close Lib "buoy_gitkit" Alias "bgtk_close" (handle As Ptr)
+Private Declare Function N_Error Lib "buoy_gitkit" Alias "bgtk_last_error" () As String
+Private Declare Function N_RepositoryPath Lib "buoy_gitkit" Alias "bgtk_repository_path" (handle As Ptr) As String
+Private Declare Function N_Workdir Lib "buoy_gitkit" Alias "bgtk_workdir" (handle As Ptr) As String
+Private Declare Function N_IsBare Lib "buoy_gitkit" Alias "bgtk_is_bare" (handle As Ptr) As Integer
+Private Declare Function N_Head Lib "buoy_gitkit" Alias "bgtk_head" (handle As Ptr) As Ptr
+Private Declare Sub N_HeadFree Lib "buoy_gitkit" Alias "bgtk_head_free" (handle As Ptr)
+Private Declare Function N_HeadBranch Lib "buoy_gitkit" Alias "bgtk_head_branch" (handle As Ptr) As String
+Private Declare Function N_HeadOID Lib "buoy_gitkit" Alias "bgtk_head_oid" (handle As Ptr) As String
+Private Declare Function N_HeadUnborn Lib "buoy_gitkit" Alias "bgtk_head_unborn" (handle As Ptr) As Integer
+Private Declare Function N_HeadDetached Lib "buoy_gitkit" Alias "bgtk_head_detached" (handle As Ptr) As Integer
+Private Declare Function N_Status Lib "buoy_gitkit" Alias "bgtk_status" (handle As Ptr) As Ptr
+Private Declare Sub N_StatusFree Lib "buoy_gitkit" Alias "bgtk_status_free" (handle As Ptr)
+Private Declare Function N_StatusCount Lib "buoy_gitkit" Alias "bgtk_status_count" (handle As Ptr) As Integer
+Private Declare Function N_StatusFlags Lib "buoy_gitkit" Alias "bgtk_status_flags" (handle As Ptr, index As Integer) As Integer
+Private Declare Function N_StatusPath Lib "buoy_gitkit" Alias "bgtk_status_path" (handle As Ptr, index As Integer) As String
+Private Declare Function N_StatusOldPath Lib "buoy_gitkit" Alias "bgtk_status_old_path" (handle As Ptr, index As Integer) As String
+Private Declare Function N_Diff Lib "buoy_gitkit" Alias "bgtk_diff" (handle As Ptr, staged As Integer, contextLines As Integer, maxBytes As Integer) As Ptr
+Private Declare Sub N_BufferFree Lib "buoy_gitkit" Alias "bgtk_buffer_free" (handle As Ptr)
+Private Declare Function N_BufferData Lib "buoy_gitkit" Alias "bgtk_buffer_data" (handle As Ptr) As Ptr
+Private Declare Function N_BufferSize Lib "buoy_gitkit" Alias "bgtk_buffer_size" (handle As Ptr) As Integer
+
+Private Sub NativeSucceeded(handle As Ptr)
+    If handle = Nil Then Throw New Exception("Git: " + N_Error())
+End Sub
+
+Public Flags Enum GitStatus As Integer
+    Current = 0
+    IndexNew = 1
+    IndexModified = 2
+    IndexDeleted = 4
+    IndexRenamed = 8
+    IndexTypeChange = 16
+    WorktreeNew = 128
+    WorktreeModified = 256
+    WorktreeDeleted = 512
+    WorktreeTypeChange = 1024
+    WorktreeRenamed = 2048
+    WorktreeUnreadable = 4096
+    Ignored = 16384
+    Conflicted = 32768
+End Flags Enum
+
+''' An owned value snapshot: subsequent repository changes do not mutate this object.
+Public Class GitHead
+    Public Property BranchName As String
+    Public Property ObjectID As String
+    Public Property IsUnborn As Boolean
+    Public Property IsDetached As Boolean
+End Class
+
+''' Paths are literal UTF-8 repository-relative paths, never shell-quoted porcelain.
+Public Class GitStatusEntry
+    Public Property RelativePath As String
+    Public Property OldPath As String
+    Public Property Status As GitStatus
+
+    Public Property HasIndexChanges As Boolean
+        Get
+            Return (CType(Me.Status, Integer) And 31) <> 0
+        End Get
+    End Property
+
+    Public Property HasWorktreeChanges As Boolean
+        Get
+            Return (CType(Me.Status, Integer) And 8064) <> 0
+        End Get
+    End Property
+
+    Public Property IsUntracked As Boolean
+        Get
+            Return (CType(Me.Status, Integer) And 128) <> 0
+        End Get
+    End Property
+
+    Public Property IsConflicted As Boolean
+        Get
+            Return (CType(Me.Status, Integer) And 32768) <> 0
+        End Get
+    End Property
+End Class
+
+''' A local, read-only repository owner. Confine each instance to one thread.
+Public Class GitRepository
+    Private Property Handle As Ptr
+
+    ''' discover=True searches parent directories; False opens only the supplied location.
+    Public Sub Constructor(directory As String, discover As Boolean = True)
+        Dim encoded As Bytes = Bytes.FromString(directory, Text.Encodings.UTF8)
+        If encoded.Count = 0 Then Throw New InvalidArgumentException("Repository directory is required")
+        For i As Integer = 0 To encoded.Count - 1
+            If encoded.Item(i) = 0 Then Throw New InvalidArgumentException("Repository directory contains NUL")
+        Next
+        Dim searchParents As Integer = 0
+        If discover Then searchParents = 1
+        Me.Handle = N_Open(directory, searchParents)
+        NativeSucceeded(Me.Handle)
+    End Sub
+
+    Private Sub RequireOpen()
+        If Me.Handle = Nil Then Throw New InvalidArgumentException("Git repository is closed")
+    End Sub
+
+    Public Sub Close()
+        If Me.Handle <> Nil Then N_Close(Me.Handle)
+        Me.Handle = Nil
+    End Sub
+
+    Public Sub Destructor()
+        Me.Close()
+    End Sub
+
+    Public Property RepositoryPath As String
+        Get
+            Me.RequireOpen()
+            Return N_RepositoryPath(Me.Handle)
+        End Get
+    End Property
+
+    Public Property WorkingDirectory As String
+        Get
+            Me.RequireOpen()
+            Return N_Workdir(Me.Handle)
+        End Get
+    End Property
+
+    Public Property IsBare As Boolean
+        Get
+            Me.RequireOpen()
+            Return N_IsBare(Me.Handle) <> 0
+        End Get
+    End Property
+
+    Public Function Head() As GitHead
+        Me.RequireOpen()
+        Dim nativeHead As Ptr = N_Head(Me.Handle)
+        NativeSucceeded(nativeHead)
+        Try
+            Dim snapshot As New GitHead()
+            snapshot.BranchName = N_HeadBranch(nativeHead)
+            snapshot.ObjectID = N_HeadOID(nativeHead)
+            snapshot.IsUnborn = N_HeadUnborn(nativeHead) <> 0
+            snapshot.IsDetached = N_HeadDetached(nativeHead) <> 0
+            Return snapshot
+        Finally
+            N_HeadFree(nativeHead)
+        End Try
+    End Function
+
+    Public Function Status() As Array Of GitStatusEntry
+        Me.RequireOpen()
+        Dim nativeStatus As Ptr = N_Status(Me.Handle)
+        NativeSucceeded(nativeStatus)
+        Try
+            Dim entries(0) As GitStatusEntry
+            Dim count As Integer = N_StatusCount(nativeStatus)
+            If count < 0 Then Throw New Exception("Git status could not be read")
+            For i As Integer = 0 To count - 1
+                Dim statusBits As Integer = N_StatusFlags(nativeStatus, i)
+                If statusBits < 0 Then Throw New Exception("Git status entry could not be read")
+                Dim entry As New GitStatusEntry()
+                entry.RelativePath = N_StatusPath(nativeStatus, i)
+                entry.OldPath = N_StatusOldPath(nativeStatus, i)
+                entry.Status = CType(statusBits, GitStatus)
+                Array.Append(entries, entry)
+            Next
+            Return entries
+        Finally
+            N_StatusFree(nativeStatus)
+        End Try
+    End Function
+
+    ''' Diff excludes untracked file contents; use Status to list untracked paths.
+    Public Function DiffBytes(staged As Boolean = False, contextLines As Integer = 3, maxBytes As Integer = 33554432) As Bytes
+        Me.RequireOpen()
+        If contextLines < 0 Or contextLines > 1000 Or maxBytes < 0 Then Throw New InvalidArgumentException("Invalid diff limits")
+        Dim indexDiff As Integer = 0
+        If staged Then indexDiff = 1
+        Dim nativeBuffer As Ptr = N_Diff(Me.Handle, indexDiff, contextLines, maxBytes)
+        NativeSucceeded(nativeBuffer)
+        Try
+            Dim count As Integer = N_BufferSize(nativeBuffer)
+            If count < 0 Then Throw New Exception("Git diff buffer could not be read")
+            Dim data As New Bytes()
+            If count > 0 Then data.Append(N_BufferData(nativeBuffer), count)
+            Return data
+        Finally
+            N_BufferFree(nativeBuffer)
+        End Try
+    End Function
+
+    ''' Throws EncodingException when a patch contains non-UTF-8 file text.
+    Public Function DiffText(staged As Boolean = False, contextLines As Integer = 3, maxBytes As Integer = 33554432) As String
+        Return Me.DiffBytes(staged, contextLines, maxBytes).ToString(Text.Encodings.UTF8)
+    End Function
+End Class

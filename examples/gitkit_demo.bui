@@ -1,0 +1,13 @@
+Import gitkit
+
+Sub Main(args As Array Of String)
+    If Array.Count(args) < 2 Then Throw New InvalidArgumentException("Pass a repository directory")
+    Dim repository As New GitRepository(args(1))
+    Dim head As GitHead = repository.Head()
+    Print "Branch: " + head.BranchName
+    Print "HEAD: " + head.ObjectID
+    For Each entry In repository.Status()
+        Print String.From(CType(entry.Status, Integer)) + " " + entry.RelativePath
+    Next
+    Print repository.DiffText()
+End Sub
