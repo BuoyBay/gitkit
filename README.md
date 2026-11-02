@@ -1,4 +1,4 @@
-# Local Git status and diffs via embedded libgit2
+# Local Git via libgit2
 
 Read-only local Git inspection for an IDE's source-control sidebar and diff view.
 `Import gitkit` exposes managed objects backed by embedded libgit2 1.9.7;

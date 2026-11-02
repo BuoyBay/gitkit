@@ -2,7 +2,7 @@
   "schema": 1,
   "name": "gitkit",
   "version": "0.1.0",
-  "description": "Local Git status and diffs via embedded libgit2",
+  "description": "Local Git via libgit2",
   "libraries": [
     {
       "libName": "buoy_gitkit",
