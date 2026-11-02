@@ -1,7 +1,7 @@
 # Inspect local Git status and diffs with embedded libgit2
 
 Read-only local Git inspection for an IDE's source-control sidebar and diff view.
-`Import gitkit` exposes managed Buoy objects backed by embedded libgit2 1.9.7;
+`Import gitkit` exposes managed objects backed by embedded libgit2 1.9.7;
 consumer applications do not invoke a shell or require the Git CLI.
 
 ## Install
@@ -17,7 +17,7 @@ consumer project for reproducible installs.
 
 ## Example
 
-```buoy
+```basic
 Import gitkit
 
 Sub Main()
@@ -49,7 +49,6 @@ On your own machine, install Buoy and run:
 buoy ai init --both
 ```
 
-The generated agent files and editor settings stay local and are ignored by Git.
 
 ## Contributing
 

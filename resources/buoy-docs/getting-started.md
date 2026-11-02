@@ -11,7 +11,7 @@ related: ["index.md", "api.md", "typed-api.md"]
 
 Copy the gitkit archive into packages and retain the matching native runtime payload when distributing the built app. The example opens the current directory, searching parents, prints HEAD and status, and always closes the owner. It performs no repository write.
 
-```buoy
+```basic
 Import gitkit
 
 Sub Main()
